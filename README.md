@@ -1,4 +1,4 @@
-GvolIcon
+Gvolicon
 =========
 
 **A simple and lightweight volume icon that sits in your system tray.**
@@ -6,13 +6,13 @@ GvolIcon
 Features
 --------
 
-The below listed features should give you an idea of what GvolIcon is and what it is not. You can use these to see if GvolIcon is suited for your needs.
+The below listed features should give you an idea of what Gvolicon is and what it is not. You can use these to see if Gvolicon is suited for your needs.
 
 * Easily change volume levels by scrolling on the icon;
 * Easily mute and restore the volume by clicking on the icon;
 * No right-click menu.
 
-GvolIcon's help output should also give you an idea of what it is meant to do:
+Gvolicon's help output should also give you an idea of what it is meant to do:
 
 	-v, --version              Display version and exit
 	-d, --device               Device to use
@@ -24,9 +24,9 @@ GvolIcon's help output should also give you an idea of what it is meant to do:
 Installation
 ------------
 
-The dependencies required to build and run GvolIcon are GTK3 and Alsa.
+The dependencies required to build and run Gvolicon are GTK3 and alsa.
 
-Once these dependencies are installed, just run the following commands to build and install GvolIcon:
+Once these dependencies are installed, just run the following commands to build and install Gvolicon:
 
     $ make
     # make clean install
@@ -54,9 +54,9 @@ For any bug or request [fill an issue][bug] on [GitHub][ghp].
 
 License
 -------
-**GvolIcon** is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+**Gvolicon** is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-**GvolIcon** is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+**Gvolicon** is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License along with this program. If not, see <http://www.gnu.org/licenses/>.
 

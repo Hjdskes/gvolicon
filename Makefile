@@ -1,19 +1,22 @@
-CC=gcc
-PROG=gvolicon
-CFLAGS= -Wall -Os -std=c99 -lasound `pkg-config --cflags gtk+-3.0`
-LDFLAGS=`pkg-config --libs gtk+-3.0`
+CC         = gcc
+PROG       = gvolicon
+PREFIX    ?= /usr/local
+BINPREFIX  = ${PREFIX}/bin
 
-PREFIX=/usr/local
-BINDIR=/bin
+LIBS       = -lasound `pkg-config --cflags --libs gtk+-3.0`
+CFLAGS     = -Wall -Os -std=c99
 
-all : $(PROG)
+$(PROG):
+	$(CC) ${CFLAGS} ${LIBS} ${PROG}.c -o ${PROG}
 
-$(PROG) :
-	$(CC) $(PROG).c -o $(PROG) $(CFLAGS) $(LDFLAGS)
+debug: CFLAGS += -O0 -g -pedantic -Wextra
+debug: ${PROG}
 
 install: 
-	install -d $(DESTDIR)$(PREFIX)$(BINDIR)
-	install $(PROG) $(DESTDIR)$(PREFIX)$(BINDIR)
+	install -d ${DESTDIR}${BINPREFIX}
+	install -Dm755 $(PROG) ${DESTDIR}${BINPREFIX}
+
+uninstall: rm -f ${BINPREFIX}/${PROG}
 
 clean:
-	rm $(PROG)
+	rm -f ${PROG}
