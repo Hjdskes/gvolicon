@@ -1,12 +1,12 @@
 /* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 4; tab-width: 4 -*-  */
 /*
  * gvolicon.c
- * Copyright (C) 2013 Jente Hidskes <jthidskes@outlook.com>
+ * Copyright (C) 2013-2014 Jente Hidskes <hjdskes@gmail.com>
  *
  * Option parsing borrowed from cbatticon
  * Copyright (C) 2011-2013 Colin Jones <xentalion@gmail.com> 
  *
- * Based on code by fogobogo, who granted permission to license this under GPL2
+ * Based on code by fogobogo, who granted permission to license this under GPLv3
  *
  * Gvolicon is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -26,7 +26,6 @@
 #include <glib/gprintf.h>
 #include <alsa/asoundlib.h>
 
-#define GVOLICON_VERSION_STRING  "0.1"
 #define DEFAULT_VOLUME_STEP       5
 #define DEFAULT_UPDATE_INTERVAL   1
 
@@ -41,25 +40,25 @@
 #define ICON_HIGH_SYMBOLIC       "audio-volume-high-symbolic"
 
 enum {
-	MUTED,
+	MUTED = 0,
 	UNMUTED
 };
 
 enum {
-	STANDARD,
+	STANDARD = 0,
 	SYMBOLIC
 };
 
 struct volume {
 	gchar *mixer;
 	gchar *device;
+	gint   has_playback_switch;
 	gint   realvol;
 	gint   oldvol;
-	gint   storedvol;
 	gint   mute;
+	gint   oldmute;
 	long   vol;
 	long   max;
-	long   min;
 } vol;
 
 struct configuration {
@@ -72,14 +71,15 @@ struct configuration {
 	STANDARD
 };
 
-snd_mixer_t *handle;
-snd_mixer_selem_id_t *vol_info;
+static snd_mixer_t *handle;
+static snd_mixer_selem_id_t *vol_info;
 
-static int get_options (int argc, char **argv) {
+static int
+get_options(int argc, char **argv) {
 	GOptionContext *option_context;
 	GError *error = NULL;
 	gboolean use_symbolic_icons = FALSE, display_version = FALSE;
-	
+
 	GOptionEntry option_entries[] = {
 		{ "version",         'v', 0, G_OPTION_ARG_NONE,   &display_version,               "Display version and exit",                                NULL },
 		{ "device",          'd', 0, G_OPTION_ARG_STRING, &vol.device,                    "Device to use",                                           NULL },
@@ -90,195 +90,200 @@ static int get_options (int argc, char **argv) {
 		{ NULL },
 	};
 
-	option_context = g_option_context_new (NULL);
-	g_option_context_add_main_entries (option_context, option_entries, NULL);
-	g_option_context_add_group (option_context, gtk_get_option_group (TRUE));
+	option_context = g_option_context_new(NULL);
+	g_option_context_add_main_entries(option_context, option_entries, NULL);
+	g_option_context_add_group(option_context, gtk_get_option_group(TRUE));
 
-	if (g_option_context_parse (option_context, &argc, &argv, &error) == FALSE) {
-		g_printerr ("Can not parse command line arguments: %s\n", error->message);
-		g_error_free (error);
+	if(g_option_context_parse(option_context, &argc, &argv, &error) == FALSE) {
+		g_printerr("%s: can not parse command line arguments: %s\n", argv[0], error->message);
+		g_error_free(error);
+		error = NULL;
 		return -1;
 	}
 
-	g_option_context_free (option_context);
+	g_option_context_free(option_context);
 
-	if (display_version == TRUE) {
-		g_print ("Gvolicon: a simple and lightweight volume icon that sits in your system tray. Version %s.\n", GVOLICON_VERSION_STRING);
+	if(display_version == TRUE) {
+		g_print("%s: a simple and lightweight volume icon that sits in your system tray. Version %s.\n", argv[0], VERSION);
 		return -1;
 	}
 
-	if (use_symbolic_icons == TRUE) {
-		if (gtk_icon_theme_has_icon (gtk_icon_theme_get_default (), ICON_MUTE_SYMBOLIC) == TRUE)
+	if(use_symbolic_icons == TRUE) {
+		GtkIconTheme *theme;
+		theme = gtk_icon_theme_get_default();
+		if(gtk_icon_theme_has_icon(theme, ICON_MUTE_SYMBOLIC) == TRUE)
 			configuration.icon_type = SYMBOLIC;
 		else {
 			configuration.icon_type = STANDARD;
-			g_printerr ("Can not find symbolic icons! Falling back to standard icons\n");
+			g_printerr("%s: can not find symbolic icons! Falling back to standard icons.\n", argv[0]);
 		}
 	}
 
-	if (configuration.volume_step <= 0) {
+	if(configuration.volume_step <= 0) {
 		configuration.volume_step = DEFAULT_VOLUME_STEP;
-		g_printerr ("Invalid volume step! It has been reset to default (%d)\n", DEFAULT_VOLUME_STEP);
+		g_printerr("%s: invalid volume step! It has been reset to default (%d).\n", argv[0], DEFAULT_VOLUME_STEP);
 	}
 
-	if (configuration.update_interval <= 0) {
+	if(configuration.update_interval <= 0) {
 		configuration.update_interval = DEFAULT_UPDATE_INTERVAL;
-		g_printerr ("Invalid update interval! It has been reset to default (%d seconds)\n", DEFAULT_UPDATE_INTERVAL);
+		g_printerr("%s: invalid update interval! It has been reset to default (%d seconds).\n", argv[0], DEFAULT_UPDATE_INTERVAL);
 	}
 
 	return 0;
 }
 
-void tray_icon_set_icon (GtkStatusIcon *icon) {
-	snd_mixer_elem_t *elem;
+static void
+tray_icon_set_icon(GtkStatusIcon *icon) {
+	snd_mixer_handle_events(handle);
 
-	snd_mixer_handle_events (handle);
-	elem = snd_mixer_find_selem (handle, vol_info);
-
-	if (snd_mixer_selem_has_playback_switch (elem)) {
-		if (vol.mute == MUTED) {
-			gtk_status_icon_set_from_icon_name (icon, (configuration.icon_type == STANDARD) ? ICON_MUTE : ICON_MUTE_SYMBOLIC);
-			return;
-		}
+	if(vol.has_playback_switch && vol.mute == MUTED) {
+		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_MUTE : ICON_MUTE_SYMBOLIC);
+		return;
 	}
-		
-	if (vol.realvol == 0)
-		gtk_status_icon_set_from_icon_name (icon, (configuration.icon_type == STANDARD) ? ICON_MUTE : ICON_MUTE_SYMBOLIC);
-	else if (vol.realvol > 0 && vol.realvol <= 33)
-		gtk_status_icon_set_from_icon_name (icon, (configuration.icon_type == STANDARD) ? ICON_LOW : ICON_LOW_SYMBOLIC);
-	else if (vol.realvol > 33 && vol.realvol <= 66)
-		gtk_status_icon_set_from_icon_name (icon, (configuration.icon_type == STANDARD) ? ICON_MEDIUM : ICON_MEDIUM_SYMBOLIC);
-	else if (vol.realvol > 66 && vol.realvol <= 100)
-		gtk_status_icon_set_from_icon_name (icon, (configuration.icon_type == STANDARD) ? ICON_HIGH : ICON_HIGH_SYMBOLIC);
+
+	if(!vol.has_playback_switch && vol.realvol == 0)
+		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_MUTE : ICON_MUTE_SYMBOLIC);
+	else if(vol.realvol > 0 && vol.realvol <= 33)
+		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_LOW : ICON_LOW_SYMBOLIC);
+	else if(vol.realvol > 33 && vol.realvol <= 66)
+		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_MEDIUM : ICON_MEDIUM_SYMBOLIC);
+	else
+		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_HIGH : ICON_HIGH_SYMBOLIC);
 }
 
-void tray_icon_set_tooltip (GtkStatusIcon *icon) {
+static void
+tray_icon_set_tooltip(GtkStatusIcon *icon) {
 	gchar tooltip[24];
-	snd_mixer_elem_t *elem;
 
-	snd_mixer_handle_events (handle);
-	elem = snd_mixer_find_selem (handle, vol_info);
+	snd_mixer_handle_events(handle);
 
-	if (snd_mixer_selem_has_playback_switch (elem)) {
-		if (vol.mute == MUTED)
-			g_sprintf (tooltip, "Volume: %d%% - Muted", vol.realvol);
-		else
-			g_sprintf (tooltip, "Volume: %d%%", vol.realvol);
-	} else {
-		if (vol.realvol == 0)
-			g_sprintf (tooltip, "Muted");
-		else
-			g_sprintf (tooltip, "Volume: %d%%", vol.realvol);
-	}
+	if(vol.has_playback_switch && vol.mute == MUTED)
+		g_sprintf(tooltip, "Volume: %d%% - Muted", vol.realvol);
+	else if(!vol.has_playback_switch && vol.realvol == 0)
+		g_sprintf(tooltip, "Muted");
+	else
+		g_sprintf(tooltip, "Volume: %d%%", vol.realvol);
 
-	gtk_status_icon_set_tooltip_text (icon, tooltip);
+	gtk_status_icon_set_tooltip_text(icon, tooltip);
 }
 
-void tray_icon_on_scroll (GtkStatusIcon *icon, GdkEventScroll *event) {
+static void
+tray_icon_on_scroll(GtkStatusIcon *icon, GdkEventScroll *event) {
 	snd_mixer_elem_t *elem;
 
-	if (event->direction == GDK_SCROLL_UP)
+	if(event->direction == GDK_SCROLL_UP)
 		vol.realvol += configuration.volume_step;
+	/* if we try to go below zero the volume jumps up to 100. This is to protect our ears */
+	else if(event->direction == GDK_SCROLL_DOWN && vol.realvol != 0)
+        vol.realvol -= configuration.volume_step;
 
-	if (event->direction == GDK_SCROLL_DOWN) {
-		/* if we try to go below zero the volume jumps up to 100. This is to protect our ears */
-		if (vol.realvol == 0)
-			vol.realvol = 0;
-        else
-            vol.realvol -= configuration.volume_step;
-    }
+	snd_mixer_handle_events(handle);
+	elem = snd_mixer_find_selem(handle, vol_info);
+	snd_mixer_selem_set_playback_volume_all(elem, (double)vol.max * vol.realvol / 100);
 
-	snd_mixer_handle_events (handle);
-	elem = snd_mixer_find_selem (handle, vol_info);
-	snd_mixer_selem_set_playback_volume_all (elem, (double) vol.max * vol.realvol / 100);
-
-    tray_icon_set_icon (icon);
-    tray_icon_set_tooltip (icon);
+    tray_icon_set_icon(icon);
+    tray_icon_set_tooltip(icon);
 }
 
-void tray_icon_on_click (GtkStatusIcon *icon) {
+static void
+tray_icon_on_click(GtkStatusIcon *icon) {
 	snd_mixer_elem_t *elem;
 
-	snd_mixer_handle_events (handle);
-	elem = snd_mixer_find_selem (handle, vol_info);
+	snd_mixer_handle_events(handle);
+	elem = snd_mixer_find_selem(handle, vol_info);
 
-	if (snd_mixer_selem_has_playback_switch (elem)) {
-		if (vol.mute == UNMUTED)
-			snd_mixer_selem_set_playback_switch_all (elem, MUTED);
-		else if (vol.mute == MUTED)
-			snd_mixer_selem_set_playback_switch_all (elem, UNMUTED);
-	} else {
-		if (vol.realvol != 0) {
-			vol.storedvol = vol.realvol;
+	if(vol.has_playback_switch)
+		snd_mixer_selem_set_playback_switch_all(elem, !vol.mute);
+	else {
+		if(vol.realvol != 0) {
+			vol.oldvol = vol.realvol;
 			vol.realvol = 0;
-		} else if (vol.realvol == 0)
-			vol.realvol = vol.storedvol;
-		
-		snd_mixer_selem_set_playback_volume_all (elem, (double) vol.max * vol.realvol / 100);
+		} else
+			vol.realvol = vol.oldvol;
+		snd_mixer_selem_set_playback_volume_all(elem, (double)vol.max * vol.realvol / 100);
 	}
 
-	tray_icon_set_icon (icon);
-	tray_icon_set_tooltip (icon);
+	tray_icon_set_icon(icon);
+	tray_icon_set_tooltip(icon);
 }
 
-void tray_icon_check_for_update (GtkStatusIcon **icon)  {
+static void
+tray_icon_check_for_update(GtkStatusIcon *icon)  {
 	snd_mixer_elem_t *elem;
+	long min; //not used, but segfault if NULL in call below
 
-	snd_mixer_handle_events (handle);
-	elem = snd_mixer_find_selem (handle, vol_info);
+	snd_mixer_handle_events(handle);
+	elem = snd_mixer_find_selem(handle, vol_info);
 
-	snd_mixer_selem_get_playback_volume_range (elem, &vol.min, &vol.max);
-	snd_mixer_selem_get_playback_volume (elem, 0, &vol.vol);
-	if (snd_mixer_selem_has_playback_switch (elem))
-		snd_mixer_selem_get_playback_switch (elem, 0, &vol.mute);
+	snd_mixer_selem_get_playback_volume_range(elem, &min, &vol.max);
+	snd_mixer_selem_get_playback_volume(elem, 0, &vol.vol);
+	if(vol.has_playback_switch)
+		snd_mixer_selem_get_playback_switch(elem, 0, &vol.mute);
 
-	vol.realvol = (vol.vol * 100) / vol.max;
+	vol.realvol = vol.vol * 100 / vol.max;
 
-	/* todo: mute-change needs to be detected */
-	/*if (vol.realvol != vol.oldvol) {
-		vol.oldvol = vol.realvol;*/
+	if(vol.realvol != vol.oldvol) {
+		vol.oldvol = vol.realvol;
 
-		tray_icon_set_icon ((*icon));
-		tray_icon_set_tooltip ((*icon));
-	/*}*/
+		tray_icon_set_icon(icon);
+		tray_icon_set_tooltip(icon);
+	} else if(vol.has_playback_switch && vol.mute != vol.oldmute) {
+		vol.oldmute = vol.mute;
+
+		tray_icon_set_icon(icon);
+		tray_icon_set_tooltip(icon);
+	}
+
+	g_printf("oldmute: %d\nmute: %d\n", vol.oldmute, vol.mute);
 }
 
-int main (int argc, char **argv) {
+int
+main(int argc, char **argv) {
 	GtkStatusIcon *tray_icon;
 	snd_mixer_elem_t *elem;
 
-	if (get_options (argc, argv) == -1)
-		return -1;
+	if(get_options(argc, argv) < 0)
+		exit(EXIT_FAILURE);
 
-	snd_mixer_open (&handle, 0);
-	snd_mixer_attach (handle, vol.device ? vol.device : "default");
-	snd_mixer_selem_register (handle, NULL, NULL);
-	snd_mixer_load (handle);
+	snd_mixer_open(&handle, 0);
+	snd_mixer_attach(handle, vol.device ? vol.device : "default");
+	snd_mixer_selem_register(handle, NULL, NULL);
+	snd_mixer_load(handle);
 
-	snd_mixer_selem_id_malloc (&vol_info);
-	snd_mixer_selem_id_set_name (vol_info, vol.mixer ? vol.mixer : "Master");
+	snd_mixer_selem_id_malloc(&vol_info);
+	snd_mixer_selem_id_set_name(vol_info, vol.mixer ? vol.mixer : "Master");
 
-	elem = snd_mixer_find_selem (handle, vol_info);
-	if (!elem) {
-		g_printerr ("Unable to open device! Exiting\n");
-		return -1;
+	elem = snd_mixer_find_selem(handle, vol_info);
+	if(elem == NULL) {
+		g_printerr("%s: unable to open device! Exiting\n", argv[0]);
+		if(vol_info)
+			snd_mixer_selem_id_free(vol_info);
+		if(handle)
+			snd_mixer_close(handle);
+		exit(EXIT_FAILURE);
 	}
 
-	gtk_init (&argc, &argv);
+	/* initialize some values */
+	vol.has_playback_switch = snd_mixer_selem_has_playback_switch(elem);
+	if(vol.has_playback_switch) {
+		snd_mixer_selem_get_playback_switch(elem, 0, &vol.mute);
+		vol.oldmute = vol.mute;
+	}
 
-	tray_icon = gtk_status_icon_new ();
-	gtk_status_icon_set_visible (tray_icon, TRUE);
-	g_signal_connect (G_OBJECT (tray_icon), "activate", G_CALLBACK (tray_icon_on_click), NULL);
-	g_signal_connect (G_OBJECT (tray_icon), "scroll-event", G_CALLBACK (tray_icon_on_scroll), NULL);
-	g_timeout_add_seconds (configuration.update_interval, (GSourceFunc) tray_icon_check_for_update, &tray_icon);
+	gtk_init(&argc, &argv);
 
-	gtk_main ();
+	tray_icon = gtk_status_icon_new();
+	gtk_status_icon_set_visible(tray_icon, TRUE);
+	g_signal_connect(tray_icon, "activate", G_CALLBACK(tray_icon_on_click), NULL);
+	g_signal_connect(tray_icon, "scroll-event", G_CALLBACK(tray_icon_on_scroll), NULL);
+	g_timeout_add_seconds(configuration.update_interval, (GSourceFunc)tray_icon_check_for_update, tray_icon);
 
-	if (vol_info)
-		snd_mixer_selem_id_free (vol_info);
-	if (handle)
-		snd_mixer_close (handle);
+	gtk_main();
 
-	return 0;
+	if(vol_info)
+		snd_mixer_selem_id_free(vol_info);
+	if(handle)
+		snd_mixer_close(handle);
+
+	exit(EXIT_SUCCESS);
 }
-
