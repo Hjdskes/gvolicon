@@ -233,8 +233,6 @@ tray_icon_check_for_update(GtkStatusIcon *icon)  {
 		tray_icon_set_icon(icon);
 		tray_icon_set_tooltip(icon);
 	}
-
-	g_printf("oldmute: %d\nmute: %d\n", vol.oldmute, vol.mute);
 }
 
 int
@@ -273,6 +271,7 @@ main(int argc, char **argv) {
 	gtk_init(&argc, &argv);
 
 	tray_icon = gtk_status_icon_new();
+	tray_icon_set_icon(tray_icon);
 	gtk_status_icon_set_visible(tray_icon, TRUE);
 	g_signal_connect(tray_icon, "activate", G_CALLBACK(tray_icon_on_click), NULL);
 	g_signal_connect(tray_icon, "scroll-event", G_CALLBACK(tray_icon_on_scroll), NULL);
