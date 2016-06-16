@@ -143,7 +143,7 @@ tray_icon_set_icon(GtkStatusIcon *icon) {
 
 	if(!vol.has_playback_switch && vol.realvol == 0)
 		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_MUTE : ICON_MUTE_SYMBOLIC);
-	else if(vol.realvol > 0 && vol.realvol <= 33)
+	else if(vol.realvol >= 0 && vol.realvol <= 33)
 		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_LOW : ICON_LOW_SYMBOLIC);
 	else if(vol.realvol > 33 && vol.realvol <= 66)
 		gtk_status_icon_set_from_icon_name(icon, (configuration.icon_type == STANDARD) ? ICON_MEDIUM : ICON_MEDIUM_SYMBOLIC);
@@ -192,9 +192,10 @@ tray_icon_on_click(GtkStatusIcon *icon) {
 	snd_mixer_handle_events(handle);
 	elem = snd_mixer_find_selem(handle, vol_info);
 
-	if(vol.has_playback_switch)
+	if(vol.has_playback_switch) {
 		snd_mixer_selem_set_playback_switch_all(elem, !vol.mute);
-	else {
+		vol.mute = !vol.mute;
+	} else {
 		if(vol.realvol != 0) {
 			vol.oldvol = vol.realvol;
 			vol.realvol = 0;
@@ -207,7 +208,7 @@ tray_icon_on_click(GtkStatusIcon *icon) {
 	tray_icon_set_tooltip(icon);
 }
 
-static void
+static gboolean
 tray_icon_check_for_update(GtkStatusIcon *icon)  {
 	snd_mixer_elem_t *elem;
 	long min; //not used, but segfault if NULL in call below
@@ -233,6 +234,7 @@ tray_icon_check_for_update(GtkStatusIcon *icon)  {
 		tray_icon_set_icon(icon);
 		tray_icon_set_tooltip(icon);
 	}
+	return TRUE;
 }
 
 int
